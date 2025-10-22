@@ -2,7 +2,7 @@
   "name": "ecommerce-platform",
   "version": "1.0.0",
   "description": "Full-stack e-commerce platform with React frontend and Node.js backend",
-  "main": "server/index.js",
+  "main": "client/package.json",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon server/index.js",
