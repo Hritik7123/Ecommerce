@@ -1,6 +1,7 @@
 {
   "version": 2,
-  "buildCommand": "cd client && npm ci && npm run build",
-  "outputDirectory": "client/build",
-  "installCommand": "cd client && npm ci"
+  "rootDirectory": "client",
+  "buildCommand": "npm run build",
+  "outputDirectory": "build",
+  "installCommand": "npm ci"
 }
