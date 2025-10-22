@@ -1,5 +1,12 @@
 {
   "version": 2,
-  "buildCommand": "node build-vercel.js",
-  "outputDirectory": "client/build"
+  "builds": [
+    {
+      "src": "client/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
+    }
+  ]
 }
