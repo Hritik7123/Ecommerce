@@ -11,6 +11,7 @@
     "install-all": "npm install && cd client && npm install",
     "vercel-build": "npm run install-all && npm run build",
     "init-db": "node server/scripts/init-db.js",
+    "init-production-db": "node deploy-database.js",
     "start": "node server/index.js"
   },
   "dependencies": {
