@@ -7,6 +7,9 @@ require('dotenv').config();
 
 const app = express();
 
+// Enable trust proxy for Railway/Vercel
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 app.use(cors({
