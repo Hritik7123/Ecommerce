@@ -29,11 +29,11 @@ export interface Product {
   }>;
   stock: number;
   sku?: string;
-  rating: {
+  rating?: {
     average: number;
     count: number;
   };
-  reviews: Array<{
+  reviews?: Array<{
     id: string;
     user: {
       id: string;

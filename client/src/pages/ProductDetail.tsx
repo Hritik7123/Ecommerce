@@ -103,10 +103,10 @@ const ProductDetail: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">{data.name}</h1>
             <div className="flex items-center mb-4">
               <div className="flex items-center">
-                {renderStars(data.rating.average)}
+                {renderStars(data.rating?.average || 0)}
               </div>
               <span className="text-sm text-gray-500 ml-2">
-                ({data.rating.count} reviews)
+                ({data.rating?.count || 0} reviews)
               </span>
             </div>
             <p className="text-gray-600 text-lg">{data.description}</p>
@@ -199,7 +199,7 @@ const ProductDetail: React.FC = () => {
       )}
 
       {/* Reviews Section */}
-      {data.reviews.length > 0 && (
+      {data.reviews && data.reviews.length > 0 && (
         <div className="mt-12">
           <h3 className="text-2xl font-bold text-gray-900 mb-6">Customer Reviews</h3>
           <div className="space-y-4">
@@ -207,13 +207,13 @@ const ProductDetail: React.FC = () => {
               <div key={review.id} className="card p-6">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">
-                    <span className="font-medium">{review.user.name}</span>
+                    <span className="font-medium">{review.user?.name || 'Anonymous'}</span>
                     <div className="flex">
-                      {renderStars(review.rating)}
+                      {renderStars(review.rating || 0)}
                     </div>
                   </div>
                   <span className="text-sm text-gray-500">
-                    {new Date(review.createdAt).toLocaleDateString()}
+                    {review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Unknown date'}
                   </span>
                 </div>
                 {review.comment && (
