@@ -24,5 +24,9 @@
     }
   ],
   "installCommand": "npm install && cd client && npm install",
-  "buildCommand": "cd client && npm run build"
+  "buildCommand": "cd client && npm run build",
+  "env": {
+    "CI": "false",
+    "GENERATE_SOURCEMAP": "false"
+  }
 }
