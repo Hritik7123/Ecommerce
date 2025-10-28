@@ -37,21 +37,32 @@ router.put('/profile', auth, [
   body('address.country').optional().trim().isLength({ max: 50 }).withMessage('Country must be less than 50 characters')
 ], async (req, res) => {
   try {
+    console.log('Profile update request received:', { userId: req.userId, body: req.body });
+    
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('Validation errors:', errors.array());
       return res.status(400).json({ errors: errors.array() });
     }
 
     const user = await User.findByPk(req.userId);
     if (!user) {
+      console.log('User not found:', req.userId);
       return res.status(404).json({ message: 'User not found' });
     }
 
+    console.log('Updating user with data:', req.body);
     await user.update(req.body);
 
+    // Get updated user without password
+    const updatedUser = await User.findByPk(req.userId, {
+      attributes: { exclude: ['password'] }
+    });
+
+    console.log('Profile updated successfully for user:', updatedUser.id);
     res.json({
       message: 'Profile updated successfully',
-      user
+      user: updatedUser
     });
   } catch (error) {
     console.error('Update profile error:', error);

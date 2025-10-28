@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, LoginCredentials, RegisterCredentials } from '../types';
 import { authAPI } from '../services/api';
 import toast from 'react-hot-toast';
@@ -96,10 +96,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     toast.success('Logged out successfully');
   };
 
+  // Memoize setUser to prevent unnecessary re-renders
+  const memoizedSetUser = useCallback((user: User | null) => {
+    setUser(user);
+  }, []);
+
   const value: AuthContextType = {
     user,
     token,
-    setUser,
+    setUser: memoizedSetUser,
     login,
     register,
     logout,

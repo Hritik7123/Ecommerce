@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { usersAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -24,13 +24,18 @@ const Profile: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState<User | null>(null);
+  const hasFetchedProfile = useRef(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ProfileFormData>();
 
   useEffect(() => {
     const fetchProfile = async () => {
+      if (hasFetchedProfile.current) return;
+      
       try {
         setLoading(true);
+        hasFetchedProfile.current = true;
+        
         const response = await usersAPI.getProfile();
         const profileUser = response.data.user;
         setProfileData(profileUser);
@@ -49,6 +54,7 @@ const Profile: React.FC = () => {
         });
       } catch (error) {
         console.error('Failed to fetch profile:', error);
+        hasFetchedProfile.current = false; // Reset flag on error
         // Fallback to user data from auth context
         if (user) {
           setProfileData(user);
@@ -70,18 +76,21 @@ const Profile: React.FC = () => {
       }
     };
 
-    if (user) {
+    if (user && !hasFetchedProfile.current) {
       fetchProfile();
     }
   }, [user, reset, setUser]);
 
   const onSubmit = async (data: ProfileFormData) => {
     try {
+      console.log('Submitting profile update:', data);
       setLoading(true);
       const response = await usersAPI.updateProfile(data);
+      console.log('Profile update response:', response.data);
       setUser(response.data.user);
       setProfileData(response.data.user);
       setIsEditing(false);
+      hasFetchedProfile.current = false; // Reset flag to allow refetch if needed
       toast.success('Profile updated successfully');
     } catch (error: any) {
       console.error('Profile update error:', error);

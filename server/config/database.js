@@ -28,6 +28,12 @@ if (process.env.DATABASE_PUBLIC_URL) {
     password: process.env.DB_PASSWORD || 'postgres',
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    dialectOptions: {
+      ssl: process.env.NODE_ENV === 'production' || process.env.DB_HOST?.includes('render.com') ? {
+        require: true,
+        rejectUnauthorized: false
+      } : false
+    },
     pool: {
       max: 5,
       min: 0,
