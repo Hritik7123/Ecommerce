@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm ci && npm --prefix client ci && npm --prefix client run build",
+  "buildCommand": "npm ci && npm --prefix client ci && CI=false npm --prefix client run build",
   "outputDirectory": "client/build",
   "installCommand": "npm ci",
   "routes": [

@@ -1,1 +1,10 @@
-*
+# Ignore only what Vercel should not upload
+node_modules
+client/node_modules
+.git
+.github
+.gitignore
+**/.DS_Store
+**/Thumbs.db
+render.yaml
+RENDER-*.md
