@@ -3,22 +3,9 @@
   "buildCommand": "npm ci && npm --prefix client ci && npm --prefix client run build",
   "outputDirectory": "client/build",
   "installCommand": "npm ci",
-  "functions": {
-    "api/index.js": {
-      "runtime": "@vercel/node@18.x"
-    }
-  },
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+    { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  "env": { "NODE_ENV": "production" }
 }
