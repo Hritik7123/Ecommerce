@@ -9,8 +9,7 @@
     "client": "cd client && npm start",
     "build": "cd client && npm run build",
     "install-all": "npm install && cd client && npm install",
-    "start": "node server/index.js",
-    "prebuild": "npm ci && cd client && npm ci"
+    "start": "node server/index.js"
   },
   "dependencies": {
     "axios": "^1.12.2",
