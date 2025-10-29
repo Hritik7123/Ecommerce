@@ -2,12 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 const { sequelize } = require('../server/models');
 require('dotenv').config();
 
 const app = express();
 
-// Enable trust proxy for Railway/Vercel
+// Enable trust proxy for Vercel
 app.set('trust proxy', 1);
 
 // Security middleware
@@ -31,27 +32,32 @@ app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection and sync
+// Serve static files from React build in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/build')));
+}
+
+// Database initialization (non-blocking)
 const initializeDatabase = async () => {
   try {
     await sequelize.authenticate();
-    console.log('PostgreSQL database connection established successfully');
+    console.log('✅ PostgreSQL database connection established successfully');
     
     // Only sync if tables don't exist (first run)
     const tableExists = await sequelize.getQueryInterface().showAllTables();
     if (tableExists.length === 0) {
       await sequelize.sync({ alter: true });
-      console.log('PostgreSQL database synchronized successfully');
+      console.log('✅ PostgreSQL database synchronized successfully');
     } else {
-      console.log('Database tables already exist, skipping sync');
+      console.log('✅ Database tables already exist, skipping sync');
     }
   } catch (error) {
-    console.error('Database initialization error:', error);
+    console.error('❌ Database initialization error:', error.message);
     // Don't exit in serverless environment
   }
 };
 
-// Initialize database on startup
+// Initialize database on startup (non-blocking)
 initializeDatabase();
 
 // Routes
@@ -64,7 +70,11 @@ app.use('/api/admin', require('../server/routes/admin'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'E-commerce API is running' });
+  res.json({ 
+    status: 'OK', 
+    message: 'E-commerce API is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Error handling middleware
@@ -76,9 +86,16 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
+// 404 handler - serve React app for non-API routes in production
 app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+  if (req.path.startsWith('/api')) {
+    res.status(404).json({ message: 'Route not found' });
+  } else if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+  } else {
+    res.status(404).json({ message: 'Route not found' });
+  }
 });
 
+// Export for Vercel serverless function
 module.exports = app;
