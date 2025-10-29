@@ -37,44 +37,96 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Database connection and sync with retry logic
-const initializeDatabase = async (retries = 5, delay = 5000) => {
+const initializeDatabase = async (retries = 10, delay = 10000) => {
+  console.log('🔄 Starting database initialization...');
+  console.log('📍 Environment check:', {
+    NODE_ENV: process.env.NODE_ENV,
+    RENDER: process.env.RENDER,
+    HAS_DATABASE_URL: !!process.env.DATABASE_URL,
+    HAS_DB_HOST: !!process.env.DB_HOST
+  });
+
   for (let i = 0; i < retries; i++) {
     try {
-      await sequelize.authenticate();
+      console.log(`🔄 Attempting database connection (${i + 1}/${retries})...`);
+      
+      // Set a timeout for the connection attempt
+      const connectionPromise = sequelize.authenticate();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout after 60 seconds')), 60000)
+      );
+      
+      await Promise.race([connectionPromise, timeoutPromise]);
       console.log('✅ PostgreSQL database connection established successfully');
       
       // Only sync if tables don't exist (first run)
-      const tableExists = await sequelize.getQueryInterface().showAllTables();
-      if (tableExists.length === 0) {
-        await sequelize.sync({ alter: true });
-        console.log('✅ PostgreSQL database synchronized successfully');
-      } else {
-        console.log('✅ Database tables already exist, skipping sync');
+      try {
+        const tableExists = await sequelize.getQueryInterface().showAllTables();
+        if (tableExists.length === 0) {
+          console.log('🔄 Creating database tables...');
+          await sequelize.sync({ alter: true });
+          console.log('✅ PostgreSQL database synchronized successfully');
+        } else {
+          console.log(`✅ Database tables already exist (${tableExists.length} tables), skipping sync`);
+        }
+      } catch (syncError) {
+        console.warn('⚠️ Database sync warning:', syncError.message);
+        // Don't fail if sync fails - tables might already exist
       }
+      
       return; // Success, exit function
     } catch (error) {
-      console.error(`❌ Database connection attempt ${i + 1}/${retries} failed:`, error.message);
+      const errorMessage = error.message || error.toString();
+      console.error(`❌ Database connection attempt ${i + 1}/${retries} failed:`);
+      console.error(`   Error: ${errorMessage}`);
+      
+      // Provide specific guidance based on error type
+      if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
+        console.error('   → DNS resolution failed. Check DATABASE_URL hostname is correct.');
+        console.error('   → For Render: Use External Database URL, not Internal.');
+      } else if (errorMessage.includes('ECONNREFUSED')) {
+        console.error('   → Connection refused. Check database is running and accessible.');
+        console.error('   → For Render: Ensure database service is "Available" not "Paused".');
+      } else if (errorMessage.includes('password') || errorMessage.includes('authentication')) {
+        console.error('   → Authentication failed. Check username and password in DATABASE_URL.');
+      } else if (errorMessage.includes('timeout')) {
+        console.error('   → Connection timeout. Database might be slow to respond.');
+      }
       
       if (i === retries - 1) {
         // Last attempt failed
+        console.error('\n❌ ===========================================');
         console.error('❌ Failed to connect to database after all retries');
-        console.error('Check your environment variables:');
-        console.error('- DATABASE_URL or DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD');
-        console.error('- Ensure database is accessible and credentials are correct');
-        console.error('- For Render: Check if database service is running');
+        console.error('❌ ===========================================\n');
+        console.error('📋 Troubleshooting Checklist:');
+        console.error('   1. ✅ Verify DATABASE_URL is set correctly in Render');
+        console.error('   2. ✅ Use External Database URL (not Internal)');
+        console.error('   3. ✅ Ensure database service is "Available" in Render dashboard');
+        console.error('   4. ✅ Check database and web service are in same region');
+        console.error('   5. ✅ Verify database credentials are correct');
+        console.error('   6. ✅ Check Render database logs for errors');
+        console.error('\n💡 Environment Variables Check:');
+        console.error(`   DATABASE_URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
+        console.error(`   DB_HOST: ${process.env.DB_HOST || 'NOT SET'}`);
+        console.error(`   NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`);
         
         // In production, don't crash immediately - allow server to start
         // Database operations will fail gracefully
         if (process.env.NODE_ENV === 'production') {
-          console.warn('⚠️ Server will start without database connection. Some features may not work.');
+          console.warn('\n⚠️ ===========================================');
+          console.warn('⚠️ Server will start WITHOUT database connection');
+          console.warn('⚠️ API endpoints requiring database will fail');
+          console.warn('⚠️ ===========================================\n');
           return;
         } else {
+          console.error('\n💥 Exiting in development mode due to database connection failure');
           process.exit(1);
         }
       }
       
-      // Wait before retry
-      console.log(`⏳ Retrying in ${delay / 1000} seconds...`);
+      // Wait before retry (longer delay for Render)
+      const waitTime = delay / 1000;
+      console.log(`⏳ Waiting ${waitTime} seconds before retry...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
