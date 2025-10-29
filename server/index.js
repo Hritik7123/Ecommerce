@@ -36,9 +36,13 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
 }
 
-// Database connection and sync with improved retry logic and exponential backoff
-const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
-  console.log('🔄 Starting database initialization...');
+// Make database initialization non-blocking - don't wait for it
+// Server starts immediately, DB connects in background
+let dbConnectionStatus = 'connecting';
+let dbConnectionError = null;
+
+const initializeDatabase = async (retries = 20, baseDelay = 3000) => {
+  console.log('🔄 Starting database initialization (non-blocking)...');
   console.log('📍 Environment check:', {
     NODE_ENV: process.env.NODE_ENV,
     RENDER: process.env.RENDER,
@@ -50,12 +54,25 @@ const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
   if (process.env.DATABASE_URL) {
     const maskedUrl = process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@');
     console.log(`📊 DATABASE_URL: ${maskedUrl}`);
+    
+    // Validate hostname format
+    try {
+      const url = new URL(process.env.DATABASE_URL);
+      const hostname = url.hostname;
+      if (hostname.includes('dpg-') && !hostname.includes('.')) {
+        console.error('❌ INCOMPLETE HOSTNAME DETECTED - Database connection will fail!');
+        console.error(`   Current: ${hostname}`);
+        console.error(`   Required: ${hostname}.REGION-postgres.render.com`);
+      }
+    } catch (e) {
+      // URL parsing failed
+    }
   }
 
   for (let i = 0; i < retries; i++) {
     try {
       // Exponential backoff: delay increases with each retry
-      const delay = baseDelay * Math.pow(1.5, i);
+      const delay = baseDelay * Math.pow(1.2, i);
       
       if (i > 0) {
         console.log(`⏳ Waiting ${(delay / 1000).toFixed(1)} seconds before retry ${i + 1}/${retries}...`);
@@ -77,18 +94,22 @@ const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
       try {
         await sequelize.query('SELECT 1');
         console.log('✅ Database connection verified');
+        dbConnectionStatus = 'connected';
+        dbConnectionError = null;
       } catch (verifyError) {
         console.warn('⚠️ Connection verified but query test failed:', verifyError.message);
+        dbConnectionStatus = 'error';
+        dbConnectionError = verifyError.message;
       }
-      
-      // Only sync if tables don't exist (first run)
+    
+    // Only sync if tables don't exist (first run)
       try {
-        const tableExists = await sequelize.getQueryInterface().showAllTables();
-        if (tableExists.length === 0) {
+    const tableExists = await sequelize.getQueryInterface().showAllTables();
+    if (tableExists.length === 0) {
           console.log('🔄 Creating database tables...');
-          await sequelize.sync({ alter: true });
+      await sequelize.sync({ alter: true });
           console.log('✅ PostgreSQL database synchronized successfully');
-        } else {
+    } else {
           console.log(`✅ Database tables already exist (${tableExists.length} tables), skipping sync`);
         }
       } catch (syncError) {
@@ -112,11 +133,11 @@ const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
         console.error('   → CRITICAL: Make sure hostname includes full domain (e.g., .render.com)');
       } else if (errorMessage.includes('ECONNREFUSED') || errorName.includes('ConnectionRefused')) {
         console.error('   → Connection refused. Possible causes:');
-        console.error('     1. Database service is paused - Check Render dashboard');
-        console.error('     2. Database is still starting (cold start takes 30-60 seconds)');
-        console.error('     3. Wrong credentials in DATABASE_URL');
-        console.error('     4. Database firewall blocking connection');
-        console.error('   → Action: Wait a bit longer and retry (Render databases have cold starts)');
+        console.error('     1. Database service is paused - Check Render dashboard → Resume database');
+        console.error('     2. Database is still starting (cold start takes 30-90 seconds on Render free tier)');
+        console.error('     3. Wrong credentials in DATABASE_URL - Verify in Render Dashboard');
+        console.error('     4. Using Internal URL instead of External URL');
+        console.error('   → Action: Wait longer - Render free databases are slow on cold start');
       } else if (errorMessage.includes('password') || errorMessage.includes('authentication')) {
         console.error('   → Authentication failed. Check username and password in DATABASE_URL.');
         console.error('   → Verify credentials in Render Dashboard → Database → Connections');
@@ -128,6 +149,8 @@ const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
         console.error('   → Render requires SSL connections.');
       }
       
+      dbConnectionError = errorMessage;
+      
       if (i === retries - 1) {
         // Last attempt failed
         console.error('\n❌ ===========================================');
@@ -135,40 +158,50 @@ const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
         console.error('❌ ===========================================\n');
         console.error('📋 CRITICAL CHECKLIST:');
         console.error('   1. ✅ Go to Render Dashboard → Your PostgreSQL Database');
-        console.error('   2. ✅ Check database status is "Available" (green), not "Paused"');
-        console.error('   3. ✅ Click "Connections" tab');
-        console.error('   4. ✅ Copy the COMPLETE "External Connection String"');
-        console.error('   5. ✅ Verify it includes: *.render.com (e.g., .oregon-postgres.render.com)');
-        console.error('   6. ✅ Go to Web Service → Environment → DATABASE_URL');
-        console.error('   7. ✅ Paste the complete External Connection String');
-        console.error('   8. ✅ Save changes and redeploy');
+        console.error('   2. ✅ Check database status - MUST be "Available" (green), not "Paused"');
+        console.error('   3. ✅ If paused, click "Resume" to start the database');
+        console.error('   4. ✅ Click "Connections" tab');
+        console.error('   5. ✅ Copy the COMPLETE "External Connection String"');
+        console.error('   6. ✅ Verify it includes: *.render.com (e.g., .oregon-postgres.render.com)');
+        console.error('   7. ✅ Go to Web Service → Environment → DATABASE_URL');
+        console.error('   8. ✅ Paste the complete External Connection String');
+        console.error('   9. ✅ Save changes and redeploy');
         console.error('\n💡 Environment Variables Check:');
         console.error(`   DATABASE_URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
         if (process.env.DATABASE_URL) {
           const masked = process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@');
-          console.error(`   DATABASE_URL value: ${masked.substring(0, 80)}...`);
+          console.error(`   DATABASE_URL value: ${masked}`);
+          // Check if hostname is complete
+          try {
+            const url = new URL(process.env.DATABASE_URL);
+            if (url.hostname.includes('dpg-') && !url.hostname.includes('.')) {
+              console.error(`   ❌ HOSTNAME IS INCOMPLETE: ${url.hostname}`);
+              console.error(`   ❌ NEEDS: ${url.hostname}.REGION-postgres.render.com`);
+            }
+          } catch (e) {}
         }
         console.error(`   NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`);
         
-        // In production, start server anyway - connection can be established later
-        if (process.env.NODE_ENV === 'production') {
-          console.warn('\n⚠️ ===========================================');
-          console.warn('⚠️ Server will start WITHOUT database connection');
-          console.warn('⚠️ Database connection will be retried on first API call');
-          console.warn('⚠️ ===========================================\n');
-          
-          // Connection will be retried automatically by Sequelize on next query
-          return;
-        } else {
-          console.error('\n💥 Exiting in development mode due to database connection failure');
-          process.exit(1);
-        }
+        dbConnectionStatus = 'failed';
+        
+        // DON'T EXIT - Server must start anyway
+        console.warn('\n⚠️ ===========================================');
+        console.warn('⚠️ Server WILL START without database connection');
+        console.warn('⚠️ Database connection can be retried via /api/health endpoint');
+        console.warn('⚠️ Fix DATABASE_URL and connection will work automatically');
+        console.warn('⚠️ ===========================================\n');
+        return;
       }
     }
   }
 };
 
-initializeDatabase();
+// Start database initialization in background - don't block server startup
+initializeDatabase().catch(err => {
+  console.error('Database initialization error (non-fatal):', err.message);
+  dbConnectionStatus = 'error';
+  dbConnectionError = err.message;
+});
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -178,9 +211,38 @@ app.use('/api/orders', require('./routes/orders'));
 app.use('/api/cart', require('./routes/cart'));
 app.use('/api/admin', require('./routes/admin'));
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'E-commerce API is running' });
+// Enhanced Health check endpoint with database status
+app.get('/api/health', async (req, res) => {
+  const healthStatus = {
+    status: 'OK',
+    message: 'E-commerce API is running',
+    timestamp: new Date().toISOString(),
+    database: {
+      status: dbConnectionStatus,
+      error: dbConnectionError
+    }
+  };
+
+  // Try to test database connection if not connected
+  if (dbConnectionStatus !== 'connected') {
+    try {
+      await sequelize.authenticate();
+      await sequelize.query('SELECT 1');
+      dbConnectionStatus = 'connected';
+      dbConnectionError = null;
+      healthStatus.database.status = 'connected';
+      healthStatus.message = 'E-commerce API is running - Database connected';
+    } catch (err) {
+      dbConnectionStatus = 'error';
+      dbConnectionError = err.message;
+      healthStatus.database.status = 'error';
+      healthStatus.database.error = err.message;
+      healthStatus.message = 'E-commerce API is running - Database connection failed';
+    }
+  }
+
+  const statusCode = dbConnectionStatus === 'connected' ? 200 : 503;
+  res.status(statusCode).json(healthStatus);
 });
 
 // Error handling middleware
@@ -199,7 +261,7 @@ app.use('*', (req, res) => {
   } else if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
   } else {
-    res.status(404).json({ message: 'Route not found' });
+  res.status(404).json({ message: 'Route not found' });
   }
 });
 
