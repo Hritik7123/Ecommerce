@@ -1,12 +1,18 @@
 {
   "version": 2,
-  "buildCommand": "npm ci && npm run vercel-build",
-  "outputDirectory": "client/build",
-  "functions": {
-    "server/index.js": {
-      "runtime": "nodejs18.x"
+  "builds": [
+    {
+      "src": "client/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
+    },
+    {
+      "src": "server/index.js",
+      "use": "@vercel/node"
     }
-  },
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
