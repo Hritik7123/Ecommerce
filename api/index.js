@@ -5,6 +5,14 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 require('dotenv').config();
 
+// Global safety: capture crashes
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
 const app = express();
 
 // Enable trust proxy for Vercel
@@ -20,7 +28,7 @@ app.use(cors({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
+  max: 1000,
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -40,36 +48,22 @@ if (process.env.NODE_ENV === 'production') {
 let sequelize = null;
 const initializeDatabase = async () => {
   try {
-    // Only try to connect if DATABASE_URL is provided
     if (!process.env.DATABASE_URL) {
-      console.log('⚠️ No DATABASE_URL provided, skipping database connection');
+      console.log('No DATABASE_URL provided, skipping database connection');
       return;
     }
-
     const { sequelize: db } = require('../server/models');
     sequelize = db;
-    
     await sequelize.authenticate();
-    console.log('✅ PostgreSQL database connection established successfully');
-    
-    // Only sync if tables don't exist (first run)
-    const tableExists = await sequelize.getQueryInterface().showAllTables();
-    if (tableExists.length === 0) {
-      await sequelize.sync({ alter: true });
-      console.log('✅ PostgreSQL database synchronized successfully');
-    } else {
-      console.log('✅ Database tables already exist, skipping sync');
-    }
+    console.log('Database connection established');
   } catch (error) {
-    console.error('❌ Database initialization error:', error.message);
-    // Don't exit in serverless environment - app should still work
+    console.error('Database initialization error:', error.message);
   }
 };
 
-// Initialize database on startup (non-blocking)
 initializeDatabase();
 
-// Routes - only load if database is available
+// Routes - load guarded
 try {
   app.use('/api/auth', require('../server/routes/auth'));
   app.use('/api/products', require('../server/routes/products'));
@@ -78,43 +72,35 @@ try {
   app.use('/api/cart', require('../server/routes/cart'));
   app.use('/api/admin', require('../server/routes/admin'));
 } catch (error) {
-  console.error('⚠️ Error loading routes:', error.message);
-  // Continue without routes if they fail to load
+  console.error('Error loading routes:', error.message);
 }
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'E-commerce API is running',
     timestamp: new Date().toISOString(),
-    database: sequelize ? 'connected' : 'not connected'
+    database: sequelize ? 'connected_or_attempted' : 'not_attempted'
   });
 });
 
-// Basic root route for testing
+// Root route
 app.get('/', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
   } else {
-    res.json({ 
-      message: 'E-commerce API is running',
-      status: 'OK',
-      environment: process.env.NODE_ENV || 'development'
-    });
+    res.json({ message: 'E-commerce API is running' });
   }
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err.stack);
-  res.status(500).json({ 
-    message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
-  });
+  console.error('Middleware error:', err);
+  res.status(500).json({ message: 'Internal server error' });
 });
 
-// 404 handler - serve React app for non-API routes in production
+// 404 handler for non-API in production serves SPA
 app.use('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     res.status(404).json({ message: 'Route not found' });
@@ -125,5 +111,7 @@ app.use('*', (req, res) => {
   }
 });
 
-// Export for Vercel serverless function
-module.exports = app;
+// Export a handler function compatible with Vercel (@vercel/node)
+module.exports = (req, res) => {
+  return app(req, res);
+};
