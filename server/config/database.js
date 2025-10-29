@@ -111,10 +111,10 @@ if (process.env.DATABASE_URL) {
   }
 }
 
-// SSL configuration for production databases
+// SSL configuration for production databases - ALWAYS use SSL for Render
 const getSSLConfig = () => {
-  // Always use SSL for Render or production
-  if (isProduction || isRender || parsedConfig?.ssl) {
+  // Always use SSL for Render or production - REQUIRED for Render PostgreSQL
+  if (isProduction || isRender || parsedConfig?.ssl || process.env.DATABASE_URL?.includes('render.com')) {
     return {
       require: true,
       rejectUnauthorized: false
@@ -132,14 +132,20 @@ if (process.env.DATABASE_URL) {
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     dialectOptions: {
-      ssl: getSSLConfig()
+      ssl: getSSLConfig(),
+      // Additional connection options for Render
+      connectTimeout: 60000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000
     },
     pool: {
-      max: 5,
-      min: 0,
-      acquire: 60000, // Increased timeout for Render (60 seconds)
-      idle: 10000,
-      evict: 1000
+      max: 10, // Increased for better connection handling
+      min: 2,  // Keep minimum connections alive
+      acquire: 120000, // Increased to 120 seconds for Render cold starts
+      idle: 30000, // Keep idle connections longer
+      evict: 1000,
+      // Handle connection errors gracefully
+      handleDisconnects: true
     },
     define: {
       timestamps: true,

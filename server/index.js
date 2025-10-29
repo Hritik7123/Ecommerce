@@ -36,8 +36,8 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
 }
 
-// Database connection and sync with retry logic
-const initializeDatabase = async (retries = 10, delay = 10000) => {
+// Database connection and sync with improved retry logic and exponential backoff
+const initializeDatabase = async (retries = 15, baseDelay = 5000) => {
   console.log('🔄 Starting database initialization...');
   console.log('📍 Environment check:', {
     NODE_ENV: process.env.NODE_ENV,
@@ -46,18 +46,40 @@ const initializeDatabase = async (retries = 10, delay = 10000) => {
     HAS_DB_HOST: !!process.env.DB_HOST
   });
 
+  // Show masked DATABASE_URL for debugging
+  if (process.env.DATABASE_URL) {
+    const maskedUrl = process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@');
+    console.log(`📊 DATABASE_URL: ${maskedUrl}`);
+  }
+
   for (let i = 0; i < retries; i++) {
     try {
+      // Exponential backoff: delay increases with each retry
+      const delay = baseDelay * Math.pow(1.5, i);
+      
+      if (i > 0) {
+        console.log(`⏳ Waiting ${(delay / 1000).toFixed(1)} seconds before retry ${i + 1}/${retries}...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
       console.log(`🔄 Attempting database connection (${i + 1}/${retries})...`);
       
       // Set a timeout for the connection attempt
       const connectionPromise = sequelize.authenticate();
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout after 60 seconds')), 60000)
+        setTimeout(() => reject(new Error('Connection timeout after 90 seconds')), 90000)
       );
       
       await Promise.race([connectionPromise, timeoutPromise]);
       console.log('✅ PostgreSQL database connection established successfully');
+      
+      // Verify connection is actually working
+      try {
+        await sequelize.query('SELECT 1');
+        console.log('✅ Database connection verified');
+      } catch (verifyError) {
+        console.warn('⚠️ Connection verified but query test failed:', verifyError.message);
+      }
       
       // Only sync if tables don't exist (first run)
       try {
@@ -77,23 +99,33 @@ const initializeDatabase = async (retries = 10, delay = 10000) => {
       return; // Success, exit function
     } catch (error) {
       const errorMessage = error.message || error.toString();
+      const errorName = error.name || '';
+      
       console.error(`❌ Database connection attempt ${i + 1}/${retries} failed:`);
-      console.error(`   Error: ${errorMessage}`);
+      console.error(`   Error Type: ${errorName}`);
+      console.error(`   Error Message: ${errorMessage}`);
       
       // Provide specific guidance based on error type
       if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
         console.error('   → DNS resolution failed. Check DATABASE_URL hostname is correct.');
         console.error('   → For Render: Use External Database URL, not Internal.');
         console.error('   → CRITICAL: Make sure hostname includes full domain (e.g., .render.com)');
-        console.error('   → Incomplete hostname example: dpg-xxxxx-a ❌');
-        console.error('   → Complete hostname example: dpg-xxxxx-a.oregon-postgres.render.com ✅');
-      } else if (errorMessage.includes('ECONNREFUSED')) {
-        console.error('   → Connection refused. Check database is running and accessible.');
-        console.error('   → For Render: Ensure database service is "Available" not "Paused".');
+      } else if (errorMessage.includes('ECONNREFUSED') || errorName.includes('ConnectionRefused')) {
+        console.error('   → Connection refused. Possible causes:');
+        console.error('     1. Database service is paused - Check Render dashboard');
+        console.error('     2. Database is still starting (cold start takes 30-60 seconds)');
+        console.error('     3. Wrong credentials in DATABASE_URL');
+        console.error('     4. Database firewall blocking connection');
+        console.error('   → Action: Wait a bit longer and retry (Render databases have cold starts)');
       } else if (errorMessage.includes('password') || errorMessage.includes('authentication')) {
         console.error('   → Authentication failed. Check username and password in DATABASE_URL.');
+        console.error('   → Verify credentials in Render Dashboard → Database → Connections');
       } else if (errorMessage.includes('timeout')) {
         console.error('   → Connection timeout. Database might be slow to respond.');
+        console.error('   → Render free tier databases can be slow on cold start.');
+      } else if (errorMessage.includes('SSL') || errorMessage.includes('TLS')) {
+        console.error('   → SSL/TLS error. Check SSL configuration.');
+        console.error('   → Render requires SSL connections.');
       }
       
       if (i === retries - 1) {
@@ -101,36 +133,37 @@ const initializeDatabase = async (retries = 10, delay = 10000) => {
         console.error('\n❌ ===========================================');
         console.error('❌ Failed to connect to database after all retries');
         console.error('❌ ===========================================\n');
-        console.error('📋 Troubleshooting Checklist:');
-        console.error('   1. ✅ Verify DATABASE_URL is set correctly in Render');
-        console.error('   2. ✅ Use External Database URL (not Internal)');
-        console.error('   3. ✅ Ensure database service is "Available" in Render dashboard');
-        console.error('   4. ✅ Check database and web service are in same region');
-        console.error('   5. ✅ Verify database credentials are correct');
-        console.error('   6. ✅ Check Render database logs for errors');
+        console.error('📋 CRITICAL CHECKLIST:');
+        console.error('   1. ✅ Go to Render Dashboard → Your PostgreSQL Database');
+        console.error('   2. ✅ Check database status is "Available" (green), not "Paused"');
+        console.error('   3. ✅ Click "Connections" tab');
+        console.error('   4. ✅ Copy the COMPLETE "External Connection String"');
+        console.error('   5. ✅ Verify it includes: *.render.com (e.g., .oregon-postgres.render.com)');
+        console.error('   6. ✅ Go to Web Service → Environment → DATABASE_URL');
+        console.error('   7. ✅ Paste the complete External Connection String');
+        console.error('   8. ✅ Save changes and redeploy');
         console.error('\n💡 Environment Variables Check:');
         console.error(`   DATABASE_URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
-        console.error(`   DB_HOST: ${process.env.DB_HOST || 'NOT SET'}`);
+        if (process.env.DATABASE_URL) {
+          const masked = process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@');
+          console.error(`   DATABASE_URL value: ${masked.substring(0, 80)}...`);
+        }
         console.error(`   NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`);
         
-        // In production, don't crash immediately - allow server to start
-        // Database operations will fail gracefully
+        // In production, start server anyway - connection can be established later
         if (process.env.NODE_ENV === 'production') {
           console.warn('\n⚠️ ===========================================');
           console.warn('⚠️ Server will start WITHOUT database connection');
-          console.warn('⚠️ API endpoints requiring database will fail');
+          console.warn('⚠️ Database connection will be retried on first API call');
           console.warn('⚠️ ===========================================\n');
+          
+          // Connection will be retried automatically by Sequelize on next query
           return;
         } else {
           console.error('\n💥 Exiting in development mode due to database connection failure');
           process.exit(1);
         }
       }
-      
-      // Wait before retry (longer delay for Render)
-      const waitTime = delay / 1000;
-      console.log(`⏳ Waiting ${waitTime} seconds before retry...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 };
