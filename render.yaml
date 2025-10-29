@@ -14,4 +14,30 @@ services:
         value: https://ecommerce-platform.onrender.com
       - key: JWT_SECRET
         generateValue: true
+      # Database connection - ADD YOUR DATABASE_URL FROM RENDER DASHBOARD
+      # Option 1: Use DATABASE_URL (Recommended)
+      # - key: DATABASE_URL
+      #   fromDatabase:
+      #     name: your-database-name
+      #     property: connectionString
+      # Option 2: Or link database in Render dashboard and it will auto-populate
+      # Option 3: Or manually set individual variables:
+      # - key: DB_HOST
+      #   fromDatabase:
+      #     name: your-database-name
+      #     property: host
+      # - key: DB_PORT
+      #   value: 5432
+      # - key: DB_NAME
+      #   fromDatabase:
+      #     name: your-database-name
+      #     property: database
+      # - key: DB_USER
+      #   fromDatabase:
+      #     name: your-database-name
+      #     property: user
+      # - key: DB_PASSWORD
+      #   fromDatabase:
+      #     name: your-database-name
+      #     property: password
 

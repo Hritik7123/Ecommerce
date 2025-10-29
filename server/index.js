@@ -36,23 +36,47 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
 }
 
-// Database connection and sync
-const initializeDatabase = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('PostgreSQL database connection established successfully');
-    
-    // Only sync if tables don't exist (first run)
-    const tableExists = await sequelize.getQueryInterface().showAllTables();
-    if (tableExists.length === 0) {
-      await sequelize.sync({ alter: true });
-      console.log('PostgreSQL database synchronized successfully');
-    } else {
-      console.log('Database tables already exist, skipping sync');
+// Database connection and sync with retry logic
+const initializeDatabase = async (retries = 5, delay = 5000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await sequelize.authenticate();
+      console.log('✅ PostgreSQL database connection established successfully');
+      
+      // Only sync if tables don't exist (first run)
+      const tableExists = await sequelize.getQueryInterface().showAllTables();
+      if (tableExists.length === 0) {
+        await sequelize.sync({ alter: true });
+        console.log('✅ PostgreSQL database synchronized successfully');
+      } else {
+        console.log('✅ Database tables already exist, skipping sync');
+      }
+      return; // Success, exit function
+    } catch (error) {
+      console.error(`❌ Database connection attempt ${i + 1}/${retries} failed:`, error.message);
+      
+      if (i === retries - 1) {
+        // Last attempt failed
+        console.error('❌ Failed to connect to database after all retries');
+        console.error('Check your environment variables:');
+        console.error('- DATABASE_URL or DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD');
+        console.error('- Ensure database is accessible and credentials are correct');
+        console.error('- For Render: Check if database service is running');
+        
+        // In production, don't crash immediately - allow server to start
+        // Database operations will fail gracefully
+        if (process.env.NODE_ENV === 'production') {
+          console.warn('⚠️ Server will start without database connection. Some features may not work.');
+          return;
+        } else {
+          process.exit(1);
+        }
+      }
+      
+      // Wait before retry
+      console.log(`⏳ Retrying in ${delay / 1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-  } catch (error) {
-    console.error('Database initialization error:', error);
-    process.exit(1);
   }
 };
 

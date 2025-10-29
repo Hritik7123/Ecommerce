@@ -1,12 +1,27 @@
 const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-// Parse DATABASE_PUBLIC_URL if available (for Railway)
+// Determine if we're in production (Render/Railway/etc)
+const isProduction = process.env.NODE_ENV === 'production';
+const isRender = process.env.RENDER || process.env.DB_HOST?.includes('render.com') || process.env.DATABASE_URL?.includes('render.com');
+
+// SSL configuration for production databases
+const sslConfig = (isProduction || isRender) ? {
+  require: true,
+  rejectUnauthorized: false
+} : false;
+
+// Build Sequelize configuration
 let sequelize;
-if (process.env.DATABASE_PUBLIC_URL) {
-  sequelize = new Sequelize(process.env.DATABASE_PUBLIC_URL, {
+
+// Priority 1: DATABASE_URL (Render, Railway, etc. often provide this)
+if (process.env.DATABASE_URL) {
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    dialectOptions: {
+      ssl: sslConfig
+    },
     pool: {
       max: 5,
       min: 0,
@@ -19,7 +34,30 @@ if (process.env.DATABASE_PUBLIC_URL) {
       freezeTableName: true
     }
   });
-} else {
+}
+// Priority 2: DATABASE_PUBLIC_URL (Railway-specific)
+else if (process.env.DATABASE_PUBLIC_URL) {
+  sequelize = new Sequelize(process.env.DATABASE_PUBLIC_URL, {
+    dialect: 'postgres',
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    dialectOptions: {
+      ssl: sslConfig
+    },
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    },
+    define: {
+      timestamps: true,
+      underscored: true,
+      freezeTableName: true
+    }
+  });
+}
+// Priority 3: Individual environment variables
+else {
   sequelize = new Sequelize({
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
@@ -29,10 +67,7 @@ if (process.env.DATABASE_PUBLIC_URL) {
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     dialectOptions: {
-      ssl: process.env.NODE_ENV === 'production' || process.env.DB_HOST?.includes('render.com') ? {
-        require: true,
-        rejectUnauthorized: false
-      } : false
+      ssl: sslConfig
     },
     pool: {
       max: 5,
