@@ -9,7 +9,7 @@
     "client": "cd client && npm start",
     "build": "npm --prefix client run build",
     "install-all": "npm install && cd client && npm install",
-    "vercel-build": "npm --prefix client run build",
+    "vercel-build": "npm ci && npm --prefix client ci && npm --prefix client run build",
     "render-build": "npm ci && npm --prefix client ci && npm --prefix client run build",
     "init-db": "node server/scripts/init-db.js",
     "init-production-db": "node deploy-database.js",
