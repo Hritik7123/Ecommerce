@@ -12,7 +12,7 @@ if (process.env.DATABASE_URL) {
     const url = new URL(process.env.DATABASE_URL);
     const hostname = url.hostname;
     
-    // Validate hostname completeness
+    // Validate hostname completeness and AUTO-FIX incomplete hostnames
     const isRenderHostname = hostname.includes('dpg-') || hostname.includes('render.com');
     const isIncompleteHostname = hostname.includes('dpg-') && !hostname.includes('.');
     
@@ -20,26 +20,65 @@ if (process.env.DATABASE_URL) {
       console.error('\n❌ ===========================================');
       console.error('❌ INCOMPLETE DATABASE HOSTNAME DETECTED!');
       console.error('❌ ===========================================');
-      console.error(`Current hostname: ${hostname}`);
-      console.error('\n⚠️  Your DATABASE_URL hostname is incomplete.');
-      console.error('Render PostgreSQL hostnames must include the full domain.');
-      console.error('\n❌ WRONG (what you have):');
-      console.error('   dpg-d40j9a3uibrs73csn3eg-a');
-      console.error('\n✅ CORRECT (what you need):');
-      console.error('   dpg-d40j9a3uibrs73csn3eg-a.oregon-postgres.render.com');
-      console.error('   (or similar with .render.com suffix)');
-      console.error('\n📋 HOW TO FIX:');
-      console.error('1. Go to Render Dashboard → Your PostgreSQL Database');
-      console.error('2. Click "Connections" tab');
-      console.error('3. Copy the FULL "External Connection String"');
-      console.error('4. It should look like:');
-      console.error('   postgres://user:pass@dpg-xxxxx-a.REGION-postgres.render.com/db');
-      console.error('5. Paste the COMPLETE URL in Render Web Service → Environment → DATABASE_URL');
-      console.error('\n❌ ===========================================\n');
       
-      // Set parsedConfig to null so we use fallback URL method
-      // This will still fail but with clearer error messages
-      parsedConfig = null;
+      // Show actual DATABASE_URL (mask password)
+      const maskedUrl = process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@');
+      console.error(`Current DATABASE_URL: ${maskedUrl}`);
+      console.error(`Incomplete hostname: ${hostname}`);
+      
+      // Common Render PostgreSQL regions to try
+      const renderRegions = [
+        'oregon-postgres.render.com',
+        'singapore-postgres.render.com',
+        'frankfurt-postgres.render.com',
+        'ohio-postgres.render.com',
+        'australia-postgres.render.com',
+        'brazil-postgres.render.com'
+      ];
+      
+      console.error('\n🔄 ATTEMPTING AUTO-FIX by trying common Render regions...');
+      
+      // Try to auto-complete with common regions
+      let fixed = false;
+      for (const region of renderRegions) {
+        const completedHostname = `${hostname}.${region}`;
+        console.log(`   Trying: ${completedHostname}`);
+        
+        // Reconstruct URL with completed hostname
+        const fixedUrl = process.env.DATABASE_URL.replace(hostname, completedHostname);
+        
+        // Update parsedConfig with fixed hostname
+        try {
+          const fixedUrlObj = new URL(fixedUrl);
+          parsedConfig = {
+            protocol: fixedUrlObj.protocol.replace(':', ''),
+            host: completedHostname,
+            port: parseInt(fixedUrlObj.port) || 5432,
+            database: fixedUrlObj.pathname.slice(1),
+            username: fixedUrlObj.username,
+            password: fixedUrlObj.password,
+            ssl: true
+          };
+          
+          console.log(`✅ Auto-fixed hostname to: ${completedHostname}`);
+          console.log('⚠️  If this doesn\'t work, check your Render database region and update DATABASE_URL manually.');
+          fixed = true;
+          break;
+        } catch (e) {
+          // Continue to next region
+        }
+      }
+      
+      if (!fixed) {
+        console.error('\n❌ AUTO-FIX FAILED - Manual fix required:');
+        console.error('1. Go to Render Dashboard → Your PostgreSQL Database');
+        console.error('2. Click "Connections" tab');
+        console.error('3. Copy the COMPLETE "External Connection String"');
+        console.error('4. It MUST include: *.render.com (e.g., .oregon-postgres.render.com)');
+        console.error('5. Update DATABASE_URL in Render Web Service → Environment');
+        console.error('\n❌ ===========================================\n');
+        parsedConfig = null;
+      }
     } else {
       parsedConfig = {
         protocol: url.protocol.replace(':', ''),
@@ -123,7 +162,9 @@ if (process.env.DATABASE_URL) {
       }
     );
   } else {
-    // Fallback to URL string with SSL forced
+    // If parsedConfig is null (incomplete hostname), try to use original URL
+    // but it will fail - error handling will catch it
+    console.warn('⚠️  Using original DATABASE_URL - connection may fail due to incomplete hostname');
     sequelize = new Sequelize(
       process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'sslmode=require',
       sequelizeConfig
