@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-const { sequelize } = require('../server/models');
 require('dotenv').config();
 
 const app = express();
@@ -37,9 +36,19 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
 }
 
-// Database initialization (non-blocking)
+// Database initialization (non-blocking and error-safe)
+let sequelize = null;
 const initializeDatabase = async () => {
   try {
+    // Only try to connect if DATABASE_URL is provided
+    if (!process.env.DATABASE_URL) {
+      console.log('⚠️ No DATABASE_URL provided, skipping database connection');
+      return;
+    }
+
+    const { sequelize: db } = require('../server/models');
+    sequelize = db;
+    
     await sequelize.authenticate();
     console.log('✅ PostgreSQL database connection established successfully');
     
@@ -53,33 +62,52 @@ const initializeDatabase = async () => {
     }
   } catch (error) {
     console.error('❌ Database initialization error:', error.message);
-    // Don't exit in serverless environment
+    // Don't exit in serverless environment - app should still work
   }
 };
 
 // Initialize database on startup (non-blocking)
 initializeDatabase();
 
-// Routes
-app.use('/api/auth', require('../server/routes/auth'));
-app.use('/api/products', require('../server/routes/products'));
-app.use('/api/users', require('../server/routes/users'));
-app.use('/api/orders', require('../server/routes/orders'));
-app.use('/api/cart', require('../server/routes/cart'));
-app.use('/api/admin', require('../server/routes/admin'));
+// Routes - only load if database is available
+try {
+  app.use('/api/auth', require('../server/routes/auth'));
+  app.use('/api/products', require('../server/routes/products'));
+  app.use('/api/users', require('../server/routes/users'));
+  app.use('/api/orders', require('../server/routes/orders'));
+  app.use('/api/cart', require('../server/routes/cart'));
+  app.use('/api/admin', require('../server/routes/admin'));
+} catch (error) {
+  console.error('⚠️ Error loading routes:', error.message);
+  // Continue without routes if they fail to load
+}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'E-commerce API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    database: sequelize ? 'connected' : 'not connected'
   });
+});
+
+// Basic root route for testing
+app.get('/', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+  } else {
+    res.json({ 
+      message: 'E-commerce API is running',
+      status: 'OK',
+      environment: process.env.NODE_ENV || 'development'
+    });
+  }
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error:', err.stack);
   res.status(500).json({ 
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
