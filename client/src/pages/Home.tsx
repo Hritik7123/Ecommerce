@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from 'react-query';
-import { ArrowRight, Star, Truck, Shield, RotateCcw } from 'lucide-react';
+import { ArrowRight, Truck, Shield, RotateCcw } from 'lucide-react';
 import { productsAPI } from '../services/api';
 import ProductCard from '../components/Product/ProductCard';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
