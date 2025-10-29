@@ -84,6 +84,9 @@ const initializeDatabase = async (retries = 10, delay = 10000) => {
       if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
         console.error('   → DNS resolution failed. Check DATABASE_URL hostname is correct.');
         console.error('   → For Render: Use External Database URL, not Internal.');
+        console.error('   → CRITICAL: Make sure hostname includes full domain (e.g., .render.com)');
+        console.error('   → Incomplete hostname example: dpg-xxxxx-a ❌');
+        console.error('   → Complete hostname example: dpg-xxxxx-a.oregon-postgres.render.com ✅');
       } else if (errorMessage.includes('ECONNREFUSED')) {
         console.error('   → Connection refused. Check database is running and accessible.');
         console.error('   → For Render: Ensure database service is "Available" not "Paused".');

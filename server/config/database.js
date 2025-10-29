@@ -10,24 +10,65 @@ let parsedConfig = null;
 if (process.env.DATABASE_URL) {
   try {
     const url = new URL(process.env.DATABASE_URL);
-    parsedConfig = {
-      protocol: url.protocol.replace(':', ''),
-      host: url.hostname,
-      port: parseInt(url.port) || 5432,
-      database: url.pathname.slice(1), // Remove leading /
-      username: url.username,
-      password: url.password,
-      ssl: url.searchParams.get('ssl') === 'true' || isProduction || isRender
-    };
-    console.log('📊 Parsed DATABASE_URL:', {
-      host: parsedConfig.host,
-      port: parsedConfig.port,
-      database: parsedConfig.database,
-      username: parsedConfig.username,
-      ssl: parsedConfig.ssl
-    });
+    const hostname = url.hostname;
+    
+    // Validate hostname completeness
+    const isRenderHostname = hostname.includes('dpg-') || hostname.includes('render.com');
+    const isIncompleteHostname = hostname.includes('dpg-') && !hostname.includes('.');
+    
+    if (isIncompleteHostname) {
+      console.error('\n❌ ===========================================');
+      console.error('❌ INCOMPLETE DATABASE HOSTNAME DETECTED!');
+      console.error('❌ ===========================================');
+      console.error(`Current hostname: ${hostname}`);
+      console.error('\n⚠️  Your DATABASE_URL hostname is incomplete.');
+      console.error('Render PostgreSQL hostnames must include the full domain.');
+      console.error('\n❌ WRONG (what you have):');
+      console.error('   dpg-d40j9a3uibrs73csn3eg-a');
+      console.error('\n✅ CORRECT (what you need):');
+      console.error('   dpg-d40j9a3uibrs73csn3eg-a.oregon-postgres.render.com');
+      console.error('   (or similar with .render.com suffix)');
+      console.error('\n📋 HOW TO FIX:');
+      console.error('1. Go to Render Dashboard → Your PostgreSQL Database');
+      console.error('2. Click "Connections" tab');
+      console.error('3. Copy the FULL "External Connection String"');
+      console.error('4. It should look like:');
+      console.error('   postgres://user:pass@dpg-xxxxx-a.REGION-postgres.render.com/db');
+      console.error('5. Paste the COMPLETE URL in Render Web Service → Environment → DATABASE_URL');
+      console.error('\n❌ ===========================================\n');
+      
+      // Set parsedConfig to null so we use fallback URL method
+      // This will still fail but with clearer error messages
+      parsedConfig = null;
+    } else {
+      parsedConfig = {
+        protocol: url.protocol.replace(':', ''),
+        host: hostname,
+        port: parseInt(url.port) || 5432,
+        database: url.pathname.slice(1), // Remove leading /
+        username: url.username,
+        password: url.password,
+        ssl: url.searchParams.get('ssl') === 'true' || isProduction || isRender
+      };
+      
+      console.log('📊 Parsed DATABASE_URL:', {
+        host: parsedConfig.host,
+        port: parsedConfig.port,
+        database: parsedConfig.database,
+        username: parsedConfig.username,
+        ssl: parsedConfig.ssl
+      });
+      
+      // Additional validation for Render hostnames
+      if (isRenderHostname && !parsedConfig.host.includes('.render.com')) {
+        console.warn('\n⚠️  WARNING: Hostname might be incomplete or incorrect.');
+        console.warn('Expected Render hostname format: *.render.com');
+        console.warn(`Current hostname: ${parsedConfig.host}\n`);
+      }
+    }
   } catch (error) {
     console.error('⚠️ Failed to parse DATABASE_URL:', error.message);
+    console.error('Make sure DATABASE_URL is a valid PostgreSQL connection string.');
   }
 }
 
